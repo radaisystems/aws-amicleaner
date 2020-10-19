@@ -53,6 +53,7 @@ class App(object):
             excluded_amis += f.fetch_unattached_lt()
             excluded_amis += f.fetch_zeroed_asg_lc()
             excluded_amis += f.fetch_zeroed_asg_lt()
+            excluded_amis += f.fetch_default_lt()
             excluded_amis += f.fetch_instances()
 
         candidates = [v
