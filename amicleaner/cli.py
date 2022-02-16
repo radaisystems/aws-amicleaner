@@ -55,6 +55,7 @@ class App(object):
             excluded_amis += f.fetch_zeroed_asg_lt()
             excluded_amis += f.fetch_default_lt()
             excluded_amis += f.fetch_instances()
+            excluded_amis += f.fetch_aws_backup()
 
         candidates = [v
                       for k, v
