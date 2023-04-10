@@ -118,11 +118,13 @@ class Fetcher(object):
                       for asg in resp.get("AutoScalingGroups", [])
                       if asg.get("DesiredCapacity", 0) == 0]
 
-        zeroed_lt_names = [lt.get("LaunchTemplateName", "")
-                        for lt in zeroed_lts]
+        zeroed_lt_names = [lt.get("LaunchTemplateName")
+            for lt in zeroed_lts
+            if "LaunchTemplateName" in lt]
 
-        zeroed_lt_versions = [lt.get("LaunchTemplateVersion", "")
-                        for lt in zeroed_lts]
+        zeroed_lt_versions = [lt.get("LaunchTemplateVersion")
+            for lt in zeroed_lts
+            if "LaunchTemplateVersion" in lt]
 
         resp = self.ec2.describe_launch_templates(
             LaunchTemplateNames=zeroed_lt_names
