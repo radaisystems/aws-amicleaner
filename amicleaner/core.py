@@ -197,10 +197,14 @@ class AMICleaner(object):
                         candidates_map[mapping_value] = mapping_list
             # case : grouping on tags
             elif mapping_strategy.get("key") == "tags":
-                mapping_value = self.tags_values_to_string(
-                    ami.tags,
-                    mapping_strategy.get("values")
-                )
+                if any(t.key == "DoNotDelete" for t in ami.tags):
+                    mapping_value = "DoNotDelete"
+                else:
+                    mapping_value = self.tags_values_to_string(
+                        ami.tags,
+                        mapping_strategy.get("values")
+                    )
+
                 if mapping_strategy.get("excluded"):
                     for excluded_mapping_value in mapping_strategy.get("excluded"):
                         if excluded_mapping_value not in mapping_value:

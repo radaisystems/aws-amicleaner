@@ -78,7 +78,6 @@ class App(object):
         if not candidates_amis:
             return None
 
-        
         c = AMICleaner(config=self.aws_config)
 
         mapped_amis = c.map_candidates(
@@ -97,6 +96,8 @@ class App(object):
 
             if not group_name:
                 report["no-tags (excluded)"] = amis
+            elif group_name == "DoNotDelete":
+                report["DoNotDelete (excluded)"] = amis
             else:
                 reduced = c.reduce_candidates(amis, self.keep_previous, self.ami_min_days)
                 if reduced:
