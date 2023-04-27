@@ -113,25 +113,34 @@ class Fetcher(object):
         """
 
         resp = self.asg.describe_auto_scaling_groups()
-        # This does not support multiple versions of the same launch template being used
-        zeroed_lts = [asg.get("LaunchTemplate", {})
-                      for asg in resp.get("AutoScalingGroups", [])
-                      if asg.get("DesiredCapacity", 0) == 0]
+        if "AutoScalingGroups" not in resp:
+            return []
+        else:
+            auto_scaling_groups = resp["AutoScalingGroups"]
 
+        # This does not support multiple versions of the same launch template being used
+        zeroed_lts = [
+            asg["LaunchTemplate"]
+            for asg in auto_scaling_groups
+            if "LaunchTemplate" in asg and asg.get("DesiredCapacity", 0) == 0]
+        
+        # Also check if the ASG is referencing a LT that was deleted, so we can skip it.
+        existing_lt_names = [lt['LaunchTemplateName'] for lt in self.ec2.describe_launch_templates()]
         zeroed_lt_names = [lt.get("LaunchTemplateName")
             for lt in zeroed_lts
-            if "LaunchTemplateName" in lt]
+            if "LaunchTemplateName" in lt and lt["LaunchTemplateName"] in existing_lt_names]
 
-        zeroed_lt_versions = [lt.get("LaunchTemplateVersion")
-            for lt in zeroed_lts
-            if "LaunchTemplateVersion" in lt]
+        # zeroed_lt_versions = [lt.get("LaunchTemplateVersion")
+        #     for lt in zeroed_lts
+        #     if "LaunchTemplateVersion" in lt]
 
         resp = self.ec2.describe_launch_templates(
             LaunchTemplateNames=zeroed_lt_names
         )
 
         amis = []
-        for lt_name, lt_version in zip(zeroed_lt_names, zeroed_lt_versions):
+        #for lt_name, lt_version in zip(zeroed_lt_names, zeroed_lt_versions):
+        for lt_name in zeroed_lt_names:
             resp = self.ec2.describe_launch_template_versions(
                 LaunchTemplateName=lt_name
                 # Cannot be empty... Versions=[lt_version] - unsure how to pass param only if present in Python 
