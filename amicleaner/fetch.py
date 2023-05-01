@@ -125,7 +125,7 @@ class Fetcher(object):
             if "LaunchTemplate" in asg and asg.get("DesiredCapacity", 0) == 0]
         
         # Also check if the ASG is referencing a LT that was deleted, so we can skip it.
-        existing_lt_names = [lt['LaunchTemplateName'] for lt in self.ec2.describe_launch_templates()]
+        existing_lt_names = [lt['LaunchTemplateName'] for lt in self.ec2.describe_launch_templates()['LaunchTemplates']]
         zeroed_lt_names = [lt.get("LaunchTemplateName")
             for lt in zeroed_lts
             if "LaunchTemplateName" in lt and lt["LaunchTemplateName"] in existing_lt_names]
