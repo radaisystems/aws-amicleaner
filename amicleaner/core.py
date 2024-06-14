@@ -11,6 +11,7 @@ from .resources.config import BOTO3_RETRIES
 from .resources.models import AMI
 
 from datetime import datetime
+from time import sleep
 
 
 class OrphanSnapshotCleaner(object):
@@ -115,14 +116,21 @@ class AMICleaner(object):
 
         amis = amis or []
         for ami in amis:
-            self.ec2.deregister_image(ImageId=ami.id)
+            try:
+                self.ec2.deregister_image(ImageId=ami.id)
+            except ClientError as exc:
+                if exc.response['Error']['Code'] == 'InvalidAMIID.Unavailable':
+                    pass  # AMI is already deregistered (this is a gotcha with boto3/awscli)
+                else:
+                    raise
             print("{0} deregistered".format(ami.id))
+
             for block_device in ami.block_device_mappings:
                 if block_device.snapshot_id is not None:
                     try:
-                            self.ec2.delete_snapshot(
-                                SnapshotId=block_device.snapshot_id
-                            )
+                        self.ec2.delete_snapshot(
+                            SnapshotId=block_device.snapshot_id
+                        )
                     except ClientError:
                         failed_snapshots.append(block_device.snapshot_id)
                     print("{0} deleted\n".format(block_device.snapshot_id))

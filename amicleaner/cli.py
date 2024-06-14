@@ -110,22 +110,22 @@ class App(object):
 
     def prepare_delete_amis(self, candidates, from_ids=False):
 
-        """ Prepare deletion of candidates AMIs"""
+        """ Prepare deletion of candidate AMIs"""
 
-        failed = []
+        failed_snapshots = []
 
         if from_ids:
             print(TERM.bold("\nCleaning from {} AMI id(s) ...".format(
                 len(candidates))
             ))
-            failed = AMICleaner(config=self.aws_config).remove_amis_from_ids(candidates)
+            failed_snapshots = AMICleaner(config=self.aws_config).remove_amis_from_ids(candidates)
         else:
             print(TERM.bold("\nCleaning {} AMIs ...".format(len(candidates))))
-            failed = AMICleaner(config=self.aws_config).remove_amis(candidates)
+            failed_snapshots = AMICleaner(config=self.aws_config).remove_amis(candidates)
 
-        if failed:
-            print(TERM.red("\n{0} failed snapshots".format(len(failed))))
-            Printer.print_failed_snapshots(failed)
+        if failed_snapshots:
+            print(TERM.red("\n{0} failed snapshots".format(len(failed_snapshots))))
+            Printer.print_failed_snapshots(failed_snapshots)
 
     def clean_orphans(self):
 
@@ -173,14 +173,14 @@ class App(object):
             # print defaults
             self.print_defaults()
 
-            print(TERM.bold("\nRetrieving AMIs to clean ..."))
+            print(TERM.bold("\nRetrieving AMIs to clean ...\n"))
             candidates = self.prepare_candidates()
 
             if not candidates:
+                print(TERM.green("\nNothing to clean!\n"))
                 sys.exit(0)
 
             delete = False
-
             if not self.force_delete:
                 answer = input(
                     "Do you want to continue and remove {} AMIs "
@@ -191,10 +191,11 @@ class App(object):
 
             if delete:
                 self.prepare_delete_amis(candidates)
+            else:
+                print(TERM.yellow("\nSkipping delete step\n"))
 
 
 def main():
-
     args = parse_args(sys.argv[1:])
     if not args:
         sys.exit(1)
