@@ -54,3 +54,4 @@ target/
 
 # dotenv
 .env
+.venv

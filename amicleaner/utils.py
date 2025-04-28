@@ -8,7 +8,7 @@ import argparse
 
 from prettytable import PrettyTable
 
-from .resources.config import KEEP_PREVIOUS, AMI_MIN_DAYS
+from .resources.config import KEEP_PREVIOUS, AMI_MIN_DAYS, AWS_REGION
 
 
 class Printer(object):
@@ -22,10 +22,17 @@ class Printer(object):
         if not candidates:
             return
 
-        groups_table = PrettyTable(["Group name", "candidates"])
-
+        groups_table = PrettyTable(["Group Name", "Candidates"])
+        spacer = ["", ""]
+        deletable_groups = []
+        excluded_groups = []
         for group_name, amis in candidates.items():
-            groups_table.add_row([group_name, len(amis)])
+            if group_name.endswith(" (excluded)"):
+                excluded_groups.append([group_name, len(amis)])
+            else:
+                deletable_groups.append([group_name, len(amis)])
+            # groups_table.add_row([group_name, len(amis)])
+
             eligible_amis_table = PrettyTable(
                 ["AMI ID", "AMI Name", "Creation Date"]
             )
@@ -39,8 +46,18 @@ class Printer(object):
                 print(group_name)
                 print(eligible_amis_table.get_string(sortby="AMI Name"), "\n\n")
 
-        print("\nAMIs to be removed:")
-        print(groups_table.get_string(sortby="Group name"))
+        if excluded_groups:
+            for i in range(len(deletable_groups)):
+                if i == len(deletable_groups) - 1:
+                    groups_table.add_row(deletable_groups[i], divider=True)
+                else:
+                    groups_table.add_row(deletable_groups[i])
+            groups_table.add_rows(excluded_groups)
+        else:
+            groups_table.add_rows(deletable_groups)
+
+        print("\nCandidate AMI Summary:")
+        print(f"{groups_table.get_string()}\n")
 
     @staticmethod
     def print_failed_snapshots(snapshots):
@@ -79,7 +96,7 @@ def parse_args(args):
     parser.add_argument("--full-report",
                         dest='full_report',
                         action="store_true",
-                        help="Prints a full report of what to be cleaned")
+                        help="Prints a full report of what's to be cleaned")
 
     parser.add_argument("--mapping-key",
                         dest='mapping_key',
@@ -118,6 +135,12 @@ def parse_args(args):
                         default=AMI_MIN_DAYS,
                         help="Number of days AMI to keep excluding those "
                              "currently being running")
+
+    parser.add_argument("--aws-region",
+                        dest='aws_region',
+                        type=str,
+                        default=AWS_REGION,
+                        help="AWS Region")
 
     parsed_args = parser.parse_args(args)
     if parsed_args.mapping_key and not parsed_args.mapping_values:

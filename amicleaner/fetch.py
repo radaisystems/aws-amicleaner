@@ -4,7 +4,6 @@
 from __future__ import absolute_import
 from builtins import object
 import boto3
-from botocore.config import Config
 from .resources.config import BOTO3_RETRIES
 from .resources.models import AMI
 
@@ -13,11 +12,11 @@ class Fetcher(object):
 
     """ Fetches function for AMI candidates to deletion """
 
-    def __init__(self, ec2=None, autoscaling=None):
+    def __init__(self, ec2=None, autoscaling=None, config=None):
 
         """ Initializes aws sdk clients """
 
-        self.ec2 = ec2 or boto3.client('ec2', config=Config(retries={'max_attempts': BOTO3_RETRIES}))
+        self.ec2 = ec2 or boto3.client('ec2', config=config)
         self.asg = autoscaling or boto3.client('autoscaling')
 
     def fetch_available_amis(self):
@@ -53,12 +52,41 @@ class Fetcher(object):
         resp = self.asg.describe_launch_configurations(
             LaunchConfigurationNames=unused_lcs
         )
+
         amis = [lc.get("ImageId")
                 for lc in resp.get("LaunchConfigurations", [])]
 
+
         return amis
 
-    def fetch_zeroed_asg(self):
+    def fetch_unattached_lt(self):
+
+        """
+        Find AMIs for launch templates unattached
+        to autoscaling groups
+        """
+
+        resp = self.asg.describe_auto_scaling_groups()
+        used_lt = (asg.get("LaunchTemplate", {}).get("LaunchTemplateName")
+                   for asg in resp.get("AutoScalingGroups", []))
+
+        resp = self.ec2.describe_launch_templates()
+        all_lts = (lt.get("LaunchTemplateName", "")
+                   for lt in resp.get("LaunchTemplates", []))
+
+        unused_lts = list(set(all_lts) - set(used_lt))
+
+        amis = []
+        for lt_name in unused_lts:
+            resp = self.ec2.describe_launch_template_versions(
+                LaunchTemplateName=lt_name
+            )
+            amis.append(lt_latest_version.get("LaunchTemplateData", {}).get("ImageId")
+                        for lt_latest_version in resp.get("LaunchTemplateVersions", []))
+
+        return amis
+
+    def fetch_zeroed_asg_lc(self):
 
         """
         Find AMIs for autoscaling groups who's desired capacity is set to 0
@@ -67,7 +95,7 @@ class Fetcher(object):
         resp = self.asg.describe_auto_scaling_groups()
         zeroed_lcs = [asg.get("LaunchConfigurationName", "")
                       for asg in resp.get("AutoScalingGroups", [])
-                      if asg.get("DesiredCapacity", 0) == 0]
+                      if asg.get("DesiredCapacity", 0) == 0 and len(asg.get("LaunchConfigurationNames", [])) > 0]
 
         resp = self.asg.describe_launch_configurations(
             LaunchConfigurationNames=zeroed_lcs
@@ -77,6 +105,89 @@ class Fetcher(object):
                 for lc in resp.get("LaunchConfigurations", [])]
 
         return amis
+
+    def fetch_zeroed_asg_lt(self):
+
+        """
+        Find AMIs for autoscaling groups who's desired capacity is set to 0
+        """
+
+        resp = self.asg.describe_auto_scaling_groups()
+        if "AutoScalingGroups" not in resp:
+            return []
+        else:
+            auto_scaling_groups = resp["AutoScalingGroups"]
+
+        # This does not support multiple versions of the same launch template being used
+        zeroed_lts = [
+            asg["LaunchTemplate"]
+            for asg in auto_scaling_groups
+            if "LaunchTemplate" in asg and asg.get("DesiredCapacity", 0) == 0]
+        
+        # Also check if the ASG is referencing a LT that was deleted, so we can skip it.
+        existing_lt_names = [lt['LaunchTemplateName'] for lt in self.ec2.describe_launch_templates()['LaunchTemplates']]
+        zeroed_lt_names = [lt.get("LaunchTemplateName")
+            for lt in zeroed_lts
+            if "LaunchTemplateName" in lt and lt["LaunchTemplateName"] in existing_lt_names]
+
+        # zeroed_lt_versions = [lt.get("LaunchTemplateVersion")
+        #     for lt in zeroed_lts
+        #     if "LaunchTemplateVersion" in lt]
+
+        resp = self.ec2.describe_launch_templates(
+            LaunchTemplateNames=zeroed_lt_names
+        )
+
+        amis = []
+        #for lt_name, lt_version in zip(zeroed_lt_names, zeroed_lt_versions):
+        for lt_name in zeroed_lt_names:
+            resp = self.ec2.describe_launch_template_versions(
+                LaunchTemplateName=lt_name
+                # Cannot be empty... Versions=[lt_version] - unsure how to pass param only if present in Python 
+            )
+            amis.append(lt_latest_version.get("LaunchTemplateData", {}).get("ImageId")
+                        for lt_latest_version in resp.get("LaunchTemplateVersions", []))
+
+        return amis
+    
+    def fetch_default_lt(self):
+
+        """
+        Find AMIs that are in a launch target's default version
+        """
+
+        next_token = ''
+        launch_template_default_versions = []
+        while next_token is not None:
+            resp = self.ec2.describe_launch_template_versions(
+                Versions=[
+                    '$Default'
+                ]
+            )
+            launch_template_default_versions += resp['LaunchTemplateVersions']
+
+            next_token = resp.get('NextToken')
+
+        amis = [x['LaunchTemplateData']['ImageId'] 
+                for x in launch_template_default_versions 
+                if 'ImageId' in x['LaunchTemplateData']]
+
+        return amis
+
+    def fetch_aws_backup(self):
+
+        """
+        Find AMIs that were created by AWS Backup
+        """
+
+        my_images = self.ec2.describe_images(Owners=['self']).get('Images')
+
+        ami_ids = []
+        for image in my_images:
+            if image['Name'].startswith('AwsBackup'):
+                ami_ids.append(image['ImageId'])
+
+        return ami_ids
 
     def fetch_instances(self):
 

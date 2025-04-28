@@ -6,20 +6,20 @@ from __future__ import absolute_import
 from builtins import object
 import boto3
 from botocore.exceptions import ClientError
-from botocore.config import Config
 
 from .resources.config import BOTO3_RETRIES
 from .resources.models import AMI
 
 from datetime import datetime
+from time import sleep
 
 
 class OrphanSnapshotCleaner(object):
 
     """ Finds and removes ebs snapshots left orphaned """
 
-    def __init__(self, ec2=None):
-        self.ec2 = ec2 or boto3.client('ec2', config=Config(retries={'max_attempts': BOTO3_RETRIES}))
+    def __init__(self, ec2=None, config=None):
+        self.ec2 = ec2 or boto3.client('ec2', config=config)
 
     def get_snapshots_filter(self):
 
@@ -95,8 +95,8 @@ class OrphanSnapshotCleaner(object):
 
 class AMICleaner(object):
 
-    def __init__(self, ec2=None):
-        self.ec2 = ec2 or boto3.client('ec2', config=Config(retries={'max_attempts': BOTO3_RETRIES}))
+    def __init__(self, ec2=None, config=None):
+        self.ec2 = ec2 or boto3.client('ec2', config=config)
 
     @staticmethod
     def get_ami_sorting_key(ami):
@@ -116,14 +116,21 @@ class AMICleaner(object):
 
         amis = amis or []
         for ami in amis:
-            self.ec2.deregister_image(ImageId=ami.id)
+            try:
+                self.ec2.deregister_image(ImageId=ami.id)
+            except ClientError as exc:
+                if exc.response['Error']['Code'] == 'InvalidAMIID.Unavailable':
+                    pass  # AMI is already deregistered (this is a gotcha with boto3/awscli)
+                else:
+                    raise
             print("{0} deregistered".format(ami.id))
+
             for block_device in ami.block_device_mappings:
                 if block_device.snapshot_id is not None:
                     try:
-                            self.ec2.delete_snapshot(
-                                SnapshotId=block_device.snapshot_id
-                            )
+                        self.ec2.delete_snapshot(
+                            SnapshotId=block_device.snapshot_id
+                        )
                     except ClientError:
                         failed_snapshots.append(block_device.snapshot_id)
                     print("{0} deleted\n".format(block_device.snapshot_id))
@@ -198,10 +205,14 @@ class AMICleaner(object):
                         candidates_map[mapping_value] = mapping_list
             # case : grouping on tags
             elif mapping_strategy.get("key") == "tags":
-                mapping_value = self.tags_values_to_string(
-                    ami.tags,
-                    mapping_strategy.get("values")
-                )
+                if any(t.key == "DoNotDelete" for t in ami.tags):
+                    mapping_value = "DoNotDelete"
+                else:
+                    mapping_value = self.tags_values_to_string(
+                        ami.tags,
+                        mapping_strategy.get("values")
+                    )
+
                 if mapping_strategy.get("excluded"):
                     for excluded_mapping_value in mapping_strategy.get("excluded"):
                         if excluded_mapping_value not in mapping_value:
@@ -245,7 +256,6 @@ class AMICleaner(object):
         list by preserving a given number of them (history) based on creation
         time and rotation_strategy param
         """
-
         result_amis = []
         result_amis.extend(mapped_candidates_ami)
 
@@ -270,5 +280,4 @@ class AMICleaner(object):
             key=self.get_ami_sorting_key,
             reverse=True
         )
-
         return amis[keep_previous:]
